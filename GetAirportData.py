@@ -19,31 +19,10 @@ def get_airports_table(soup):
 
 def dms_to_dd(d, m, s, direction):
     dd = int(d) + float(m)/60 + float(s)/3600
+    dd = round(dd, 5)
     if direction == "W":
         return -dd
     return dd
-
-def get_runway_info(soup):
-    table = soup.find('table', attrs={'class': 'infobox vcard'})
-    a_tag = table.find('a', {'href': '/wiki/Runway'})
-    
-    runways = []
-    
-    if a_tag:
-        runways_tr = a_tag.find_parent('tr').find_next_sibling('tr')
-        if runways_tr:
-            next_tr = runways_tr.find_all('tr')
-            for tr in next_tr[2:]:
-                # Runway, Length (ft), Length (m), Surface
-                td_rows = tr.find_all('td')
-                runway = {
-                    'runway': td_rows[0].text.strip(),
-                    'lengthFt': td_rows[1].text.strip(),
-                    'lengthM': td_rows[2].text.strip(),
-                    'surface': td_rows[3].text.strip()
-                }
-                runways.append(runway)
-    return runways
                     
 def process_airport_name(airport_name):
     # substrings
@@ -109,8 +88,10 @@ def convert_SML(role, enplanements):
     if (role == "") or (enplanements == 0):
         return "Small"
 
-    if role in ("P-L", "P-M", "P-S"):
+    if role in ("P-L", "P-M"):
         return "Large"
+    elif role in ("P-S"):
+        return "Medium"
     elif role in ("P-N", "CS"):
         return "Medium"
     elif role in ("R", "GA"):
@@ -165,35 +146,20 @@ def scrape_airports(airports):
             processed_airport_name = process_airport_name(line_items[4].text.strip())
             if processed_airport_name == False:
                 continue
-
-            try:
-                runways = get_runway_info(airport_wiki_soup)
-            except Exception as e:
-                runways = [{
-                    'runway': "",
-                    'lengthFt': "",
-                    'lengthM': "",
-                    'surdfface': ""
-                }]
             
             # format as geojson
             airport = { 
-                "type": "Feature",
-                "geometry": { 
-                    "type": "Point",
-                    "coordinates": { 
-                        "lat": coords[0],
-                        "long": coords[1]
-                    }
+                "coordinates": { 
+                    "lat": coords[0],
+                    "long": coords[1]
                 },
                 "properties": {
+                    "airportName": processed_airport_name,
+                    "cityServed": line_items[0].find('a').get('title'),
                     "faa": line_items[1].text.strip(),
                     "iata": line_items[2].text.strip(),
                     "icao": line_items[3].text.strip(),
-                    "airportName": processed_airport_name,
                     "size": size,
-                    "runways": runways,
-                    "cityServed": line_items[0].find('a').get('title'),
                 }
             }
             print(airport['properties']['airportName']['name'])
@@ -251,9 +217,12 @@ if __name__ == '__main__':
             airports_table = get_airports_table(soup)
             scraped_airports = scrape_airports(airports_table)
             
-            accumulated_data.append(scraped_airports)
+            for apt in scraped_airports:
+                accumulated_data.append(apt)
+            #accumulated_data.append(scraped_airports)
+            
     
-    dump = json.dumps({"type": "FeatureCollection", "features": accumulated_data}, sort_keys=True)
-    f = open("output.geojson", "w")
+    dump = json.dumps(accumulated_data)
+    f = open("output.json", "w")
     f.write(dump)
     f.close()
